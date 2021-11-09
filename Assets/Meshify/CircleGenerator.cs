@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -32,8 +31,6 @@ public class CircleGenerator : MonoBehaviour
 
         mesh.triangles = tris.ToArray();
         mesh.RecalculateNormals();
-
-
 
         for (int i = 2; i < resolution; i++)
         {

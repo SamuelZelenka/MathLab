@@ -4,16 +4,17 @@ using UnityEditor;
 
 public partial class Meshify : EditorWindow
 {
-    enum Direction { North, West, East, South}
-    const float DEFAULT_Y_OFFSET = 200;
+    private enum Direction { North, West, East, South }
+    private const float DEFAULT_Y_OFFSET = 200;
 
-    float xOffset;
-    float scale = 1;
-    float vertexSize = 4;
-    Texture2D texture;
-    Color[,] pixelGrid;
-    List<Vector2Int> pixels = new List<Vector2Int>();
-    List<Vector3> vertices = new List<Vector3>();
+    private float xOffset;
+    private int scale = 1;
+    private Texture2D texture;
+    private Color[,] pixelGrid;
+    private List<Vector2Int> pixels = new List<Vector2Int>();
+
+    private int triCount;
+    private int pixelCount;
 
     // Add menu named "My Window" to the Window menu
     [MenuItem("Window/Meshify")]
@@ -26,25 +27,52 @@ public partial class Meshify : EditorWindow
 
     void OnGUI()
     {
-        vertexSize = EditorGUILayout.Slider("Vertex Size",vertexSize, 1, 10);
-        scale = EditorGUILayout.Slider("Scale", scale, 1, 100);
+        scale = (int)EditorGUILayout.Slider("Scale", scale, 1, 100);
 
         texture = (Texture2D)EditorGUILayout.ObjectField("Texture2D", texture, typeof(Texture2D), allowSceneObjects: true);
-        if (GUILayout.Button("Calculate vertices"))
+
+        if (texture != null)
         {
-            CalcVertices();
+            if (GUILayout.Button("Calculate Areas"))
+            {
+                ApplyAreas();
+            }
+            if (GUILayout.Button("Reset Image"))
+            {
+                ResetImage();
+            }
+            DrawImage();
         }
-        DrawImage();
+        EditorGUILayout.HelpBox($"{triCount} tris\n {pixelCount} pixel count", MessageType.Info);
+    }
+
+    public void ResetImage()
+    {
+        pixelGrid = new Color[texture.width, texture.height];
+        triCount = 0;
+        pixelCount = 0;
+
+        for (int x = 0; x < texture.width; x++)
+        {
+            for (int y = 0; y < texture.height; y++)
+            {
+                pixelGrid[x, y] = texture.GetPixel(x, texture.height - 1 - y);
+                if (pixelGrid[x, y].a == 1)
+                {
+                    pixelCount++;
+                }
+            }
+        }
     }
 
     public void DrawImage()
     {
         if (texture != null)
         {
-            int index = 0;
-            
-            pixelGrid = new Color[texture.width, texture.height];
-            
+            if (pixelGrid == null)
+            {
+                pixelGrid = new Color[texture.width, texture.height];
+            }
 
             xOffset = position.width / 2 - (texture.width / 2) * scale;
 
@@ -52,92 +80,101 @@ public partial class Meshify : EditorWindow
             {
                 for (int y = 0; y < texture.height; y++)
                 {
-                    pixelGrid[x, y] = texture.GetPixel(x, pixelGrid.GetLength(0) - 1 - y);
-                    if (pixelGrid[x, y].a == 1)
-                    {
-                        pixels.Add(new Vector2Int(x, y));
-                    }
-                    Color tempColor = new Color((float)x/ (texture.width), (float)y/ (texture.height) , 0, 1);
+          
+                    Color tempColor = new Color((float)x / (texture.width), (float)y / (texture.height - 1), 0, 1);
                     EditorGUI.DrawRect(new Rect(xOffset + scale * x, DEFAULT_Y_OFFSET + scale * y, scale, scale), pixelGrid[x, y]);
-                    index++;
                 }
             }
-
-
-            foreach (Vector3 vertex in vertices)
-            {
-
-                float x = xOffset + scale * vertex.x - vertexSize / 2;
-                float y = DEFAULT_Y_OFFSET + scale * vertex.y - vertexSize / 2;
-
-                EditorGUI.DrawRect(new Rect(x , y , vertexSize, vertexSize), Color.red);
-            }
         }
     }
-    public void CalcVertices()
-    {
-        
 
-        foreach (Vector2Int pixel in pixels)
+    public void ApplyAreas()
+    {
+        PixelArea[] areas = GetAreas();
+
+
+        foreach (PixelArea area in areas)
         {
-            bool[] boolenValues = new bool[4];
-            for (int i = 0; i < 4; i++)
+            Color areaColor = new Color(Random.value, Random.value, Random.value, 1);
+            foreach (Vector2Int pixel in area.pixels)
             {
-                boolenValues[i] = IsPixelInDirection(pixel, (Direction)i);
+                pixelGrid[pixel.x, pixel.y] = areaColor;
             }
         }
+        triCount = areas.Length * 2;
+    }
 
-        bool IsPixelInDirection(Vector2Int pixelPos, Direction direction)
+    private PixelArea[] GetAreas()
+    {
+        List<PixelArea> areas = new List<PixelArea>();
+
+        for (int x = 0; x < texture.width; x++)
         {
-            Vector2Int checkPosition;
-            switch (direction)
+            for (int y = 0; y < texture.height; y++)
             {
-                case Direction.North:
-                    checkPosition = pixelPos + new Vector2Int(0, 1);
-                    if (IsInRange(checkPosition.y, 0, pixelGrid.GetLength(1)))
-                    {
-                        return pixelGrid[checkPosition.x, checkPosition.y].a > 0;
-                    }
-                    break;
-                case Direction.West:
-                    checkPosition = pixelPos + new Vector2Int(1, 0);
-                    if (IsInRange(pixelPos.x + 1, 0, pixelGrid.GetLength(1)))
-                    {
-                        return pixelGrid[checkPosition.x, checkPosition.y].a > 0;
-                    }
-                    break;
-                case Direction.East:
-                    checkPosition = pixelPos + new Vector2Int(-1, 0);
-                    if (IsInRange(pixelPos.x - 1, 0, pixelGrid.GetLength(1)))
-                    {
-                        return pixelGrid[checkPosition.x, checkPosition.y].a > 0;
-                    }
-                    break;
-                case Direction.South:
-                    checkPosition = pixelPos + new Vector2Int(0, -1);
-                    if (IsInRange(pixelPos.y - 1, 0, pixelGrid.GetLength(1)))
-                    {
-                        return pixelGrid[checkPosition.x, checkPosition.y].a > 0;
-                    }
-                    break;
-                default:
-                    break;
+                Vector2Int checkPos = new Vector2Int(x, y);
+
+                // If Not transparent calculate area from pixel
+                if (pixelGrid[x, y].a == 1)
+                {
+                    PixelArea newArea = new PixelArea(new Vector2Int[] { });
+                    areas.Add(GetArea(new Vector2Int(x, y), GetRange(checkPos), ref newArea));
+                }
             }
-
-            return false;
         }
-
-    }
-    public static bool IsInRange(float input, float min, float max)
-    {
-        return input >= min && input <= max;
+        return areas.ToArray();
     }
 
-    private void AddVertex(Vector3 vertex)
+    private PixelArea GetArea(Vector2Int startPos, int range, ref PixelArea pixelArea)
     {
-        if (!vertices.Contains(vertex))
+        List<Vector2Int> validPositions = new List<Vector2Int>();
+        validPositions.AddRange(pixelArea.pixels);
+
+        for (int y = 0; y < range; y++)
         {
-            vertices.Add(vertex);
+            if (startPos.y + y < pixelGrid.GetLength(1) && pixelGrid[startPos.x, startPos.y + y].a == 1)
+            {
+                validPositions.Add(new Vector2Int(startPos.x, startPos.y + y));
+            }
+            else
+            {
+                return new PixelArea(pixelArea.pixels);
+            }
         }
+        pixelArea.pixels = validPositions.ToArray();
+        foreach (Vector2Int position in pixelArea.pixels)
+        {
+            pixelGrid[position.x, position.y].a = 0;
+        }
+
+        if (startPos.x + 1 < pixelGrid.GetLength(0))
+        {
+            return GetArea(new Vector2Int(startPos.x + 1, startPos.y), range, ref pixelArea);
+        }
+        return new PixelArea(pixelArea.pixels);
+    }
+
+    private int GetRange(Vector2Int pos)
+    {
+        int range = 1;
+
+        for (int x = pos.y; x < texture.height - 1; x++)
+        {
+            if (x + 1 < pixelGrid.GetLength(1) && pixelGrid[pos.x, x + 1].a < 1)
+            {
+                break;
+            }
+            range++;
+        }
+        return range;
+    }
+}
+
+public struct PixelArea
+{
+    public Vector2Int[] pixels;
+    public PixelArea(Vector2Int[] pixels)
+    {
+        this.pixels = pixels;
     }
 }
